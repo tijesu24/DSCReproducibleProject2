@@ -1,0 +1,160 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+## Import libraries
+```{r}
+library(dplyr)
+library(stringdist)
+```
+
+
+## Importing the notebook
+```{r cache = TRUE}
+
+stormData <- read.csv("StormData.csv.bz2")
+
+```
+```{r cache = TRUE}
+subData <-  stormData[c("EVTYPE" , "FATALITIES", 
+                        "INJURIES","PROPDMG", 
+                        "PROPDMGEXP",
+                        "CROPDMG","CROPDMGEXP")]
+subData$EVTYPE = toupper(subData$EVTYPE)
+subData$PROPDMGEXP = toupper(subData$PROPDMGEXP)
+subData$CROPDMGEXP = toupper(subData$CROPDMGEXP)
+```
+For the *EXP values, they stand for the exponents of the values.  
+"K" is 10^3  
+"M" is 10^6
+"B" is 10^9
+```{r}
+exponent.list = list("K" = 1000, "M" = 10^6,
+                     "B" = 10^9, "0" = 1)
+names(exponent.list)
+
+```
+
+
+```{r}
+unique(subData$PROPDMGEXP)
+
+```
+The PROPDMGEXP not in exponent.list have some PROPDMG values not equal to 0. However, it is impossible to determine what the invalid PROPDMGEXP values are supposed to be. I replaced the PROPDMGEXP value where PROPDMG is 0 with "0". I  also replaced "" in PROPDMGEXP with "0"
+Since the rest rows with PROPDMGEXP not in exponent.list are about 42 which is about 0.4%, they can be deleted  
+```{r}
+subData <- subData %>% 
+    mutate(PROPDMGEXP = ifelse(PROPDMG == "0" | PROPDMGEXP == "",
+                               "0", PROPDMGEXP) ) %>%
+    filter(PROPDMGEXP %in% names(exponent.list) )
+```
+
+```{r}
+unique(subData$CROPDMGEXP)
+```
+The rows with CROPDMGEXP not in exponent.list have a CROPDMG value of 0 and can be replaced with "0".
+```{r}
+subData <- subData %>% 
+    mutate(CROPDMGEXP = ifelse(CROPDMGEXP %in% names(exponent.list),
+                               CROPDMGEXP,"0"))
+```
+
+## To calculate the Damage number with DMG and DMGEXP and find total of damages
+```{r}
+subData <- subData %>% 
+    mutate(PROPDMGNUM = PROPDMG * exponent.list[PROPDMGEXP][[1]],
+           CROPDMGNUM = CROPDMG * exponent.list[CROPDMGEXP][[1]],
+           TOTALDMG = PROPDMGNUM + CROPDMGNUM)
+```
+
+EVTYPE has 48 standard values as seen in page 6 
+```{r}
+EVTYPES<-"ASTRONOMICAL LOW TIDE
+AVALANCHE
+BLIZZARD
+COASTAL FLOOD
+COLD/WIND CHILL
+DEBRIS FLOW
+DENSE FOG
+DENSE SMOKE
+DROUGHT
+DUST DEVIL
+DUST STORM
+EXCESSIVE HEAT
+EXTREME COLD/WIND CHILL
+FLASH FLOOD
+FLOOD
+FROST/FREEZE
+FUNNEL CLOUD
+FREEZING FOG
+HAIL
+HEAT
+HEAVY RAIN
+HEAVY SNOW
+HIGH SURF
+HIGH WIND
+HURRICANE (TYPHOON)
+ICE STORM
+LAKE-EFFECT SNOW
+LAKESHORE FLOOD
+LIGHTNING
+MARINE HAIL
+MARINE HIGH WIND
+MARINE STRONG WIND
+MARINE THUNDERSTORM WIND
+RIP CURRENT
+SEICHE
+SLEET
+STORM SURGE/TIDE
+STRONG WIND
+THUNDERSTORM WIND
+TORNADO
+TROPICAL DEPRESSION
+TROPICAL STORM
+TSUNAMI
+VOLCANIC ASH
+WATERSPOUT
+WILDFIRE
+WINTER STORM
+WINTER WEATHER"
+
+EVTYPES<-unlist(strsplit(EVTYPES,split = "
+"))
+
+#add some more
+EVTYPES <- c(EVTYPES, c("WIND",""))
+```
+
+To clean EVTYPES
+```{r}
+uniqueTYPES <-  unique(subData$EVTYPE)
+
+subData$EVTYPE<-gsub("TSTM","THUNDERSTORM",subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("FLD","FLOOD",subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^FREEZE$","FROST/FREEZE",subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^FROST$","FROST/FREEZE",subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^STORM SURGE$","STORM SURGE/TIDE",subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^TIDE$","STORM SURGE/TIDE",subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^TYPHOON$","HURRICANE (TYPHOON)",subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^HURRICANE$","HURRICANE (TYPHOON)",subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^EXTREME COLD$","EXTREME COLD/WIND CHILL",
+                     subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^EXTREME WIND CHILL$","EXTREME COLD/WIND CHILL",
+                     subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("^COLD$","COLD/WIND CHILL",
+                     subData$EVTYPE,fixed = T)
+subData$EVTYPE<-gsub("WIND CHILL$","COLD/WIND CHILL"
+                     ,subData$EVTYPE,fixed = T)
+
+uniqueEVTYPE <-  unique(subData$EVTYPE)
+
+#Perform fuzzy text search
+d <- expand.grid(uniqueEVTYPE,EVTYPES)  # Distance matrix in long form
+names(d) <- c("EVTYPE.DF.COLUMN","EVTYPE.CATEGORIES")
+d$dist <- stringdist(d$EVTYPE.DF.COLUMN,d$EVTYPE.CATEGORIES,
+                     method="jw") # String edit distance 
+
+fuzzyResult <- do.call(rbind, unname(by(d, d$EVTYPE.DF.COLUMN, function(x) 
+    x[x$dist ==min(x$dist),])))     
+```
+
